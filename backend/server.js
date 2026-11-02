@@ -37,18 +37,22 @@ app.use(session({
   cookie: {
     httpOnly: true,
     secure: isProduction,
-    sameSite: "lax",
+    sameSite: isProduction ? "none" : "lax",
     maxAge: 1000 * 60 * 60 * 8
   }
 }));
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standardHeaders: true, legacyHeaders: false });
 const writeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 100, standardHeaders: true, legacyHeaders: false });
+const requireSameOrigin = (req, res, next) => {
+  if (req.get("origin") !== allowedOrigin) return res.status(403).json({ error: "Request origin not allowed." });
+  next();
+};
 const requireAdmin = (req, res, next) => req.session?.admin ? next() : res.status(401).json({ error: "Admin login required." });
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
 
-app.post("/api/auth/login", loginLimiter, (req, res) => {
+app.post("/api/auth/login", requireSameOrigin, loginLimiter, (req, res) => {
   const { password } = req.body || {};
   if (typeof password !== "string" || password.length > 200 || password !== process.env.ADMIN_PASSWORD) {
     return res.status(401).json({ error: "Incorrect password." });
@@ -61,7 +65,7 @@ app.post("/api/auth/login", loginLimiter, (req, res) => {
 });
 
 app.get("/api/auth/me", (req, res) => res.json({ authenticated: Boolean(req.session?.admin) }));
-app.post("/api/auth/logout", (req, res) => req.session.destroy(() => {
+app.post("/api/auth/logout", requireSameOrigin, (req, res) => req.session.destroy(() => {
   res.clearCookie("controldeck.sid", { httpOnly: true, secure: isProduction, sameSite: "lax" });
   res.json({ authenticated: false });
 }));
@@ -74,7 +78,7 @@ app.get("/api/items", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.post("/api/items", requireAdmin, writeLimiter, async (req, res, next) => {
+app.post("/api/items", requireSameOrigin, requireAdmin, writeLimiter, async (req, res, next) => {
   try {
     const { type, title, description = "", url = "", status = "active" } = req.body || {};
     if (!["task", "project", "note", "link"].includes(type)) return res.status(400).json({ error: "Invalid item type." });
@@ -92,7 +96,7 @@ app.post("/api/items", requireAdmin, writeLimiter, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.patch("/api/items/:id", requireAdmin, writeLimiter, async (req, res, next) => {
+app.patch("/api/items/:id", requireSameOrigin, requireAdmin, writeLimiter, async (req, res, next) => {
   try {
     const allowed = ["title", "description", "url", "status"];
     const updates = Object.fromEntries(Object.entries(req.body || {}).filter(([key]) => allowed.includes(key)));
@@ -114,7 +118,7 @@ app.patch("/api/items/:id", requireAdmin, writeLimiter, async (req, res, next) =
   } catch (error) { next(error); }
 });
 
-app.delete("/api/items/:id", requireAdmin, writeLimiter, async (req, res, next) => {
+app.delete("/api/items/:id", requireSameOrigin, requireAdmin, writeLimiter, async (req, res, next) => {
   try {
     const item = await Item.findByIdAndDelete(req.params.id);
     if (!item) return res.status(404).json({ error: "Item not found." });
