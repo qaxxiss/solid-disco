@@ -6,6 +6,9 @@ const itemSchema = new mongoose.Schema({
   description: { type: String, trim: true, maxlength: 1200, default: "" },
   url: { type: String, trim: true, maxlength: 500, default: "" },
   status: { type: String, enum: ["active", "done", "planned", "in-progress"], default: "active" },
+  priority: { type: String, enum: ["low", "medium", "high", "urgent"], default: "medium" },
+  dueDate: { type: Date, default: null },
+  slug: { type: String, default: undefined },
   createdAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 
