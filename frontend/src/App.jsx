@@ -8,7 +8,7 @@ import {
 const API = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/$/, "");
 const icons = { task: Check, project: FolderKanban, note: StickyNote, link: ExternalLink };
 const labels = { task: "Tasks", project: "Projects", note: "Notes", link: "Quick links" };
-const emptyForm = { type: "task", title: "", description: "", url: "", status: "active" };
+const emptyForm = { type: "task", title: "", description: "", url: "", status: "active", priority: "medium", dueDate: "" };
 
 async function request(path, options = {}) {
   const response = await fetch(`${API}${path}`, {
@@ -79,16 +79,16 @@ export default function App() {
   }
   function openCreate() { setEditing(null); setForm(emptyForm); setFormOpen(true); }
   function openEdit(item) {
-    setEditing(item); setForm({ type: item.type, title: item.title, description: item.description || "", url: item.url || "", status: item.status || "active" }); setFormOpen(true);
+    setEditing(item); setForm({ type: item.type, title: item.title, description: item.description || "", url: item.url || "", status: item.status || "active", priority: item.priority || "medium", dueDate: item.dueDate ? new Date(item.dueDate).toISOString().slice(0,10) : "" }); setFormOpen(true);
   }
   async function saveItem(event) {
     event.preventDefault(); setBusy(true);
     try {
       if (editing) {
-        const updated = await request(`/api/items/${editing._id}`, { method: "PATCH", body: JSON.stringify({ title: form.title, description: form.description, url: form.url, status: form.status }) });
+        const updated = await request(`/api/items/${editing._id}`, { method: "PATCH", body: JSON.stringify({ title: form.title, description: form.description, url: form.url, status: form.status, priority: form.priority, dueDate: form.dueDate || null }) });
         setItems(old => old.map(x => x._id === editing._id ? updated : x)); setNotice("Changes saved.");
       } else {
-        const created = await request("/api/items", { method: "POST", body: JSON.stringify(form) });
+        const created = await request("/api/items", { method: "POST", body: JSON.stringify({ ...form, dueDate: form.dueDate || null }) });
         setItems(old => [created, ...old]); setNotice("Item added.");
       }
       setForm(emptyForm); setEditing(null); setFormOpen(false);
@@ -148,8 +148,8 @@ export default function App() {
       {loading ? <div className="loading-grid">{[1,2,3].map(n=><div className="skeleton-card" key={n}><i/><i/><i/></div>)}</div> :
       visible.length === 0 ? <div className="empty-state"><div className="empty-icon"><Activity size={25}/></div><h3>{items.length ? "Nothing matches this view" : "Your workspace is ready"}</h3><p>{items.length ? "Try changing your search or filters." : authenticated ? "Add your first task, project, note, or link." : "This public dashboard has no entries yet."}</p>{authenticated && <button className="primary-button" onClick={openCreate}><Plus size={16}/> Create first item</button>}</div> :
       <div className="items-grid">{visible.map(item => <article className="item-card" key={item._id}>
-        <div className="card-top"><div className={`item-icon ${item.type}`}>{(() => { const Icon = icons[item.type] || Circle; return <Icon size={18}/>; })()}</div><div className="card-meta"><span className="type-label">{labels[item.type] || item.type}</span><span className={`status ${item.status}`}><i/> {item.status.replace("-", " ")}</span></div>{authenticated && <div className="card-actions"><button className="icon-button" title="Edit item" onClick={()=>openEdit(item)}><Pencil size={14}/></button><button className="icon-button delete-button" title="Delete item" onClick={() => deleteItem(item)}><Trash2 size={15}/></button></div>}</div>
-        <h3>{item.title}</h3>{item.description && <p>{item.description}</p>}
+        <div className="card-top"><div className={`item-icon ${item.type}`}>{(() => { const Icon = icons[item.type] || Circle; return <Icon size={18}/>; })()}</div><div className="card-meta"><span className="type-label">{labels[item.type] || item.type}</span><span className={`status ${item.status}`}><i/> {item.status.replace("-", " ")}</span>{item.type === "task" && <span className={`priority ${item.priority || "medium"}`}>{item.priority || "medium"}</span>}</div>{authenticated && <div className="card-actions"><button className="icon-button" title="Edit item" onClick={()=>openEdit(item)}><Pencil size={14}/></button><button className="icon-button delete-button" title="Delete item" onClick={() => deleteItem(item)}><Trash2 size={15}/></button></div>}</div>
+        <h3>{item.title}</h3>{item.description && <p>{item.description}</p>}{item.type === "task" && item.dueDate && <div className={`due-date ${new Date(item.dueDate) < new Date(new Date().toDateString()) && item.status !== "done" ? "overdue" : ""}`}>Due {new Date(item.dueDate).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}</div>}
         <div className="card-footer">{item.type === "link" && item.url ? <a href={item.url} target="_blank" rel="noreferrer">Visit destination <ArrowUpRight size={15}/></a> : <span><Clock3 size={12}/> {new Date(item.createdAt || item.updatedAt).toLocaleDateString()}</span>}{authenticated && item.type === "task" && <button className="complete-button" onClick={() => updateItem(item, { status: item.status === "done" ? "active" : "done" })}>{item.status === "done" ? "Reopen task" : "Mark complete"} <Check size={13}/></button>}</div>
       </article>)}</div>}
 
@@ -163,7 +163,7 @@ export default function App() {
       <label>Title<input value={form.title} onChange={e => setForm({...form, title:e.target.value})} required maxLength={120} placeholder="Give it a clear name"/></label>
       <label>Description<textarea value={form.description} onChange={e => setForm({...form, description:e.target.value})} maxLength={1200} rows={4} placeholder="Add useful context, details or next steps..."/></label>
       {form.type === "link" && <label>Destination URL<input type="url" value={form.url} onChange={e => setForm({...form, url:e.target.value})} placeholder="https://example.com" required/></label>}
-      <label>Status<select value={form.status} onChange={e => setForm({...form, status:e.target.value})}><option value="active">Active</option><option value="planned">Planned</option><option value="in-progress">In progress</option><option value="done">Done</option></select></label>
+      {form.type === "task" && <><label>Priority<select value={form.priority} onChange={e => setForm({...form, priority:e.target.value})}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label>Due date<input type="date" value={form.dueDate} onChange={e => setForm({...form, dueDate:e.target.value})}/></label></>}\n      <label>Status<select value={form.status} onChange={e => setForm({...form, status:e.target.value})}><option value="active">Active</option><option value="planned">Planned</option><option value="in-progress">In progress</option><option value="done">Done</option></select></label>
       <div className="modal-actions"><button type="button" className="secondary-button" onClick={()=>setFormOpen(false)}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? "Saving..." : editing ? "Save changes" : "Save item"}</button></div>
     </form></div>}
     {notice && <button className="toast" onClick={() => setNotice("")}>{notice}<X size={14}/></button>}
